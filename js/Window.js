@@ -1,4 +1,4 @@
-function Window(selector) {
+export function Window(selector) {
 	this.w = 0;
 	this.h = 0;
 	this.e = $(selector);
