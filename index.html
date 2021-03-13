@@ -20,11 +20,27 @@
 				node_size: 2,
 				radius_near: 20,
 				radius_far: 700,
-				radius_void: 1400,
-				attraction_multiplier: 0.005,
-				repulsion_multiplier: 0.3,
+				radius_void: 800,
+				attraction_multiplier: 3e-3,
+				repulsion_multiplier: 0.1,
 				slowdown_multiplier: 0.95
 			};
+
+			function onMouseMove(blobNode, mouse) {
+				blobNode.explodeFrom(mouse.x, mouse.y, 1, 100);
+			}
+
+			function onMouseRelease(parentCanvas, arc) {
+				var force = arc.progress;
+				if (force < 0.1) force = 0.1;
+				for (i = 0; i < parentCanvas.sprites.length; i++)
+					parentCanvas.sprites[i].implodeTo(
+						win.mouse.x,
+						win.mouse.y,
+						force * 100,
+						force * 2000
+					);
+			}
 		</script>
 	</head>
 	<body>

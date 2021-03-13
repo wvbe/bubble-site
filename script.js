@@ -2,15 +2,16 @@ var win; // Windowwwwww
 var mouse; // Canvas van mouse
 var main;
 
-function onMouseMove(blobNode, mouse) {
-	blobNode.explodeFrom(mouse.x, mouse.y, 1, 100);
-}
-
-function onMouseRelease(parentCanvas, arc) {
-	var force = arc.progress;
-	if (force < 0.1) force = 0.1;
-	for (i = 0; i < parentCanvas.sprites.length; i++)
-		parentCanvas.sprites[i].implodeTo(win.mouse.x, win.mouse.y, force * 40, force * 2000);
+/**
+ * Converts an X/Y, which represent the angle
+ */
+function rasterizeVector({ x, y }, radius) {
+	if ((x == 0 && y == 0) || radius == 0) {
+		return { x: 0, y: 0 };
+	}
+	// multiply by the ratio of desired radius to (pythagoras of) x/y vector
+	const multiplier = radius / Math.sqrt(y * y + x * x);
+	return { x: x * multiplier, y: y * multiplier };
 }
 
 // WINDOW
@@ -23,9 +24,6 @@ class Window {
 		this.mousemoved = false;
 
 		this.resize();
-	}
-	log(msg) {
-		$('#log').append('<li>' + msg + '</li>');
 	}
 	resize() {
 		if (document.body && document.body.offsetWidth) {
@@ -78,28 +76,9 @@ class Window {
 			);
 		else return null;
 	}
-
-	switch(id) {
-		if ($('.page.active').attr('id') != id) {
-			$('.page').removeClass('active');
-			$('#' + id + '.page').addClass('active');
-		}
-	}
 }
 
 // CANVAS
-window.requestAnimFrame = (function (callback) {
-	return (
-		window.requestAnimationFrame ||
-		window.webkitRequestAnimationFrame ||
-		window.mozRequestAnimationFrame ||
-		window.oRequestAnimationFrame ||
-		window.msRequestAnimationFrame ||
-		function (callback) {
-			window.setTimeout(callback, 1000 / 60);
-		}
-	);
-})();
 class Canvas {
 	constructor(parent, options) {
 		// attributes
@@ -142,23 +121,22 @@ class Canvas {
 		this.x = this.c.getContext('2d'); // context
 	}
 	reconfig(config) {
-		win.log('Reconfiguring canvas');
 		console.log('New canvas configuration:', config);
 		this.options = config;
 
 		if (config.population != undefined) this.population = config.population;
-		for (let i = 0; i < this.sprites.length; i++) {
-			if (config.node_size != undefined) this.sprites[i].node_size = config.node_size;
-			if (config.radius_near != undefined) this.sprites[i].radius_near = config.radius_near;
-			if (config.radius_far != undefined) this.sprites[i].radius_far = config.radius_far;
-			if (config.radius_void != undefined) this.sprites[i].radius_void = config.radius_void;
+		this.sprites.forEach((blobNode) => {
+			if (config.node_size != undefined) blobNode.node_size = config.node_size;
+			if (config.radius_near != undefined) blobNode.radius_near = config.radius_near;
+			if (config.radius_far != undefined) blobNode.radius_far = config.radius_far;
+			if (config.radius_void != undefined) blobNode.radius_void = config.radius_void;
 			if (config.attraction_multiplier != undefined)
-				this.sprites[i].attraction_multiplier = config.attraction_multiplier;
+				blobNode.attraction_multiplier = config.attraction_multiplier;
 			if (config.repulsion_multiplier != undefined)
-				this.sprites[i].repulsion_multiplier = config.repulsion_multiplier;
+				blobNode.repulsion_multiplier = config.repulsion_multiplier;
 			if (config.slowdown_multiplier != undefined)
-				this.sprites[i].slowdown_multiplier = config.slowdown_multiplier;
-		}
+				blobNode.slowdown_multiplier = config.slowdown_multiplier;
+		});
 	}
 	resize() {
 		jQuery('#' + this.id)
@@ -264,74 +242,57 @@ class Canvas {
 	clearAll() {
 		this.x.clearRect(0, 0, this.w, this.h);
 	}
-	trackfps(workaround) {
-		if (workaround == undefined) workaround = this;
-		if (!workaround.active) return;
+	trackfps() {
+		if (!this.active) return;
 		this.fps = this.frame_count - this.frame_tarra;
 		this.frame_tarra = this.frame_count;
 
 		// dit kan beter met een callback via options, zelfde geldt voor wel meer dingen in dit script
 		//$('.stats-population').html(this.sprites.length);
 		//$('.stats-fps').html(this.fps);
-		window.setTimeout(function () {
-			workaround.trackfps(workaround);
-		}, 1000);
+		window.setTimeout(() => this.trackfps(), 1000);
 	}
-	animate(workaround) {
-		if (workaround == undefined) workaround = this;
-		if (!workaround.active) return;
-		if (workaround.sprites.length < workaround.population) {
-			workaround.add(new Blobnode(this, workaround.options));
-			workaround.add(new Blobnode(this, workaround.options));
-			workaround.add(new Blobnode(this, workaround.options));
-			workaround.add(new Blobnode(this, workaround.options));
-			workaround.add(new Blobnode(this, workaround.options));
-			workaround.add(new Blobnode(this, workaround.options));
-			workaround.add(new Blobnode(this, workaround.options));
-			workaround.add(new Blobnode(this, workaround.options));
-			workaround.add(new Blobnode(this, workaround.options));
-			workaround.add(new Blobnode(this, workaround.options));
-		} else if (workaround.sprites.length > workaround.population) {
-			workaround.remove();
-			workaround.remove();
-			workaround.remove();
-			workaround.remove();
-			workaround.remove();
-			workaround.remove();
-			workaround.remove();
-			workaround.remove();
-			workaround.remove();
-			workaround.remove();
-			workaround.remove();
-			workaround.remove();
-			workaround.remove();
-			workaround.remove();
-			workaround.remove();
-			workaround.remove();
+	animate() {
+		if (!this.active) return;
+		if (this.sprites.length < this.population) {
+			this.add(new Blobnode(this, this.options));
+			this.add(new Blobnode(this, this.options));
+			this.add(new Blobnode(this, this.options));
+			this.add(new Blobnode(this, this.options));
+			this.add(new Blobnode(this, this.options));
+			this.add(new Blobnode(this, this.options));
+			this.add(new Blobnode(this, this.options));
+			this.add(new Blobnode(this, this.options));
+			this.add(new Blobnode(this, this.options));
+			this.add(new Blobnode(this, this.options));
+		} else if (this.sprites.length > this.population) {
+			this.remove();
+			this.remove();
+			this.remove();
+			this.remove();
+			this.remove();
+			this.remove();
+			this.remove();
+			this.remove();
+			this.remove();
+			this.remove();
+			this.remove();
+			this.remove();
+			this.remove();
+			this.remove();
+			this.remove();
+			this.remove();
 		}
 
-		workaround.iterate();
-		workaround.clear();
-		workaround.draw();
-		requestAnimFrame(function () {
-			workaround.animate(workaround);
-		});
-		workaround.frame_count++;
-		//console.log('So much for frame '+workaround.frame_count);
+		this.iterate();
+		this.clear();
+		this.draw();
+		window.requestAnimationFrame(() => this.animate());
+		this.frame_count++;
 	}
 }
 
 // BLOBNODE
-
-function normalize(p, len) {
-	if ((p.x == 0 && p.y == 0) || len == 0) {
-		return { x: 0, y: 0 };
-	}
-	var angle = Math.atan2(p.y, p.x);
-	var nx = Math.cos(angle) * len;
-	var ny = Math.sin(angle) * len;
-	return { x: nx, y: ny };
-}
 
 class Blobnode {
 	constructor(canvas, options) {
@@ -391,42 +352,47 @@ class Blobnode {
 			var ay = this.y;
 			var bx = node.x;
 			var by = node.y;
-			//var distance =  Math.abs(ax-bx)+Math.abs(ay-by);
+
+			// manhattan
+			// var distance = Math.abs(ax - bx) + Math.abs(ay - by);
+
+			// pythagoras, but ugly
 			var distance = Math.sqrt((ax - bx) * (ax - bx) + (ay - by) * (ay - by));
+
 			if (distance < this.radius_near && this.repulsion_multiplier > 0) {
+				// between 0 and 1
+				const urgencyLinearToDistance = (this.radius_near - distance) / this.radius_near;
+
 				// afstoten
-				var force = Math.pow(
-					(this.repulsion_multiplier * (this.radius_near - distance)) / this.radius_near,
-					2
-				);
+				var force = this.repulsion_multiplier * Math.pow(urgencyLinearToDistance, 2);
 				this.dx += force * (ax - bx);
 				this.dy += force * (ay - by);
-				node.dx += -force * (ax - bx);
-				node.dy += -force * (ay - by);
-				// afstoten
-				//if(distance<(this.radius_near-1))
-				var connection = {
-					//                        r: Math.round((this.color.r+node.color.r)/2),
-					//                        g: Math.round((this.color.g+node.color.g)/2),
-					//                        b: Math.round((this.color.b+node.color.b)/2),
+				node.dx -= force * (ax - bx);
+				node.dy -= force * (ay - by);
+
+				this.connections.push({
 					r: 51,
 					g: 51,
 					b: 51,
 					node: node,
 					dist: distance / this.radius_near
-				};
-				this.connections.push(connection);
+				});
 			} else if (distance < this.radius_far) {
+				// A comfortable zone of not much pushing and pulling
+				// noop()
 			} else if (distance < this.radius_void && this.attraction_multiplier > 0) {
 				// aantrekken
 				var force = Math.pow(
 					(this.attraction_multiplier * distance) / this.radius_void,
-					1.3
+					1.6
 				);
-				this.dx += -force * (ax - bx);
-				this.dy += -force * (ay - by);
+				this.dx -= force * (ax - bx);
+				this.dy -= force * (ay - by);
 				node.dx += force * (ax - bx);
 				node.dy += force * (ay - by);
+			} else {
+				// beyond radius_void
+				// noop()
 			}
 		}
 
@@ -452,25 +418,24 @@ class Blobnode {
 			else if (this.y > canvas.h) this.y = canvas.h;
 		}
 	}
-	explodeFrom(x, y, max_speed, max_dist) {
+	explodeFrom(x, y, force, radius) {
 		var ddx = x - this.x;
 		var ddy = y - this.y;
 		var dist = Math.sqrt(ddx * ddx + ddy * ddy);
-		if (dist <= max_dist) {
-			var nd = normalize({ x: -ddx, y: -ddy }, max_speed * ((max_dist - dist) / max_dist));
-			this.dx += 10 * nd.x;
-			this.dy += 10 * nd.y;
+		if (dist <= radius) {
+			var nd = rasterizeVector({ x: -ddx, y: -ddy }, force * (1 - dist / radius));
+			this.dx += nd.x;
+			this.dy += nd.y;
 		}
 	}
-	implodeTo(x, y, max_speed, max_dist) {
+	implodeTo(x, y, force, radius) {
 		var ddx = x - this.x;
 		var ddy = y - this.y;
 		var dist = Math.sqrt(ddx * ddx + ddy * ddy);
-		if (dist <= max_dist) {
-			// ligt in effectgebied?
-			var nd = normalize({ x: -ddx, y: -ddy }, max_speed * ((max_dist - dist) / max_dist));
-			this.dx -= 10 * nd.x;
-			this.dy -= 10 * nd.y;
+		if (dist <= radius) {
+			var nd = rasterizeVector({ x: -ddx, y: -ddy }, force * (1 - dist / radius));
+			this.dx -= nd.x;
+			this.dy -= nd.y;
 		}
 	}
 	draw(context) {
@@ -512,7 +477,7 @@ class Blobnode {
 // ARC
 class Arc {
 	constructor(canvas, options) {
-		this.width = 2;
+		this.width = 5;
 		this.color = { r: 0, g: 0, b: 0 };
 		this.startangle = -0.5 * Math.PI;
 		this.progress = 0;
@@ -524,10 +489,10 @@ class Arc {
 			this.y = canvas.h / 2;
 			this.radius = 0.25 * (canvas.w + canvas.h) - 0.5 * this.width;
 		};
-		this.reset = function (canvas) {
+		this.reset = function () {
 			this.progress = 0;
 		};
-		this.iterate = function (canvas, siblings) {
+		this.iterate = function () {
 			this.progress += Math.pow(1 - this.progress, 2) / 20;
 		};
 
